@@ -1,0 +1,256 @@
+/* --------------------
+   SCHEMA SQL
+   --------------------*/
+
+CREATE SCHEMA dannys_diner;
+SET search_path = dannys_diner;
+
+CREATE TABLE sales (
+  "customer_id" VARCHAR(1),
+  "order_date" DATE,
+  "product_id" INTEGER
+);
+
+INSERT INTO sales
+  ("customer_id", "order_date", "product_id")
+VALUES
+  ('A', '2021-01-01', '1'),
+  ('A', '2021-01-01', '2'),
+  ('A', '2021-01-07', '2'),
+  ('A', '2021-01-10', '3'),
+  ('A', '2021-01-11', '3'),
+  ('A', '2021-01-11', '3'),
+  ('B', '2021-01-01', '2'),
+  ('B', '2021-01-02', '2'),
+  ('B', '2021-01-04', '1'),
+  ('B', '2021-01-11', '1'),
+  ('B', '2021-01-16', '3'),
+  ('B', '2021-02-01', '3'),
+  ('C', '2021-01-01', '3'),
+  ('C', '2021-01-01', '3'),
+  ('C', '2021-01-07', '3');
+ 
+
+CREATE TABLE menu (
+  "product_id" INTEGER,
+  "product_name" VARCHAR(5),
+  "price" INTEGER
+);
+
+INSERT INTO menu
+  ("product_id", "product_name", "price")
+VALUES
+  ('1', 'sushi', '10'),
+  ('2', 'curry', '15'),
+  ('3', 'ramen', '12');
+  
+
+CREATE TABLE members (
+  "customer_id" VARCHAR(1),
+  "join_date" DATE
+);
+
+INSERT INTO members
+  ("customer_id", "join_date")
+VALUES
+  ('A', '2021-01-07'),
+  ('B', '2021-01-09');
+
+
+
+/* --------------------
+   Case Study Questions
+   --------------------*/
+
+-- 1. What is the total amount each customer spent at the restaurant?
+
+SELECT
+	A.customer_id
+    ,SUM(B.price) AS AMT_SPENT
+FROM dannys_diner.SALES A
+INNER JOIN dannys_diner.menu B
+ON A.product_id = B.product_id
+GROUP BY 1
+ORDER BY 1;
+
+-- 2. How many days has each customer visited the restaurant?
+
+SELECT
+	customer_id
+    ,COUNT(DISTINCT order_date) AS dates_visited
+FROM dannys_diner.SALES
+GROUP BY 1
+ORDER BY 1;
+
+-- 3. What was the first item from the menu purchased by each customer?
+
+WITH DATA AS (
+SELECT
+	customer_id
+    ,order_date
+    ,product_id
+    ,ROW_NUMBER() OVER ( PARTITION BY customer_id ORDER BY 1) AS rank
+FROM dannys_diner.SALES
+  )
+SELECT
+	a.customer_id
+    ,b.product_name
+FROM data a
+join dannys_diner.menu b
+on a.product_id = b.product_id
+where a.rank = 1;
+
+-- 4. What is the most purchased item on the menu and how many times was it purchased by all customers?
+ 
+WITH MOST_PURCHASED AS (
+	SELECT
+  		product_id
+    	,COUNT(*) AS CNT
+    FROM dannys_diner.sales
+    GROUP BY 1
+    ORDER BY 2 desc
+    limit 1
+)
+SELECT b.customer_id
+		,b.product_id
+        ,c.product_name
+		,count(b.*) as CNT
+FROM MOST_PURCHASED a
+INNER JOIN dannys_diner.sales b
+ON a.product_id = b.product_id
+INNER JOIN dannys_diner.menu c
+ON a.product_id = c.product_id
+group by 1,2,3
+order by 1;
+  
+-- 5. Which item was the most popular for each customer?
+WITH product_popularity as (
+SELECT
+	a.customer_id
+    ,a.product_id
+    ,max(b.product_name) as product_name
+    ,count(a.order_date) AS CNT
+FROM dannys_diner.sales a
+INNER JOIN dannys_diner.menu b
+ON a.product_id = B.product_id
+GROUP BY 1,2
+ORDER BY 1,4 DESC
+)
+,RANKING AS (
+select a.*
+,ROW_NUMBER () OVER (PARTITION BY A.customer_id ORDER BY 1) AS RANK
+from product_popularity a
+)
+SELECT * FROM RANKING WHERE RANK = 1;
+-- 6. Which item was purchased first by the customer after they became a member?
+
+WITH first_purchased as (
+SELECT 
+	a.customer_id
+  	,a.order_date
+    ,a.product_id
+  	, ROW_NUMBER () OVER (PARTITION BY a.customer_id ORDER BY 1) as purchased_rank
+FROM dannys_diner.sales a
+INNER JOIN dannys_diner.members b
+ON a.customer_id = b.customer_id
+AND a.order_date >= b.join_date
+  )
+SELECT
+	a.customer_id
+    ,a.order_date
+    ,c.product_name
+FROM first_purchased a
+INNER JOIN dannys_diner.menu c
+ON a.product_id = c.product_id
+WHERE a.purchased_rank = 1;
+
+-- 7. Which item was purchased just before the customer became a member?
+WITH first_purchased as (
+SELECT 
+	a.customer_id
+  	,a.order_date
+    ,a.product_id
+  	, ROW_NUMBER () OVER (PARTITION BY a.customer_id ORDER BY 1 desc) as purchased_rank
+FROM dannys_diner.sales a
+INNER JOIN dannys_diner.members b
+ON a.customer_id = b.customer_id
+AND a.order_date < b.join_date
+  )
+SELECT
+	a.customer_id
+    ,a.order_date
+    ,c.product_name
+FROM first_purchased a
+INNER JOIN dannys_diner.menu c
+ON a.product_id = c.product_id
+WHERE a.purchased_rank = 1;
+
+-- 8. What is the total items and amount spent for each member before they became a member?
+
+SELECT
+	a.customer_id
+    ,count(b.product_name) as total_items
+    ,sum(b.price)
+FROM dannys_diner.sales a
+INNER JOIN dannys_diner.menu b
+ON a.product_id = b.product_id
+INNER JOIN dannys_diner.members c
+ON a.customer_id = c.customer_id
+AND a.order_date < c.join_date
+GROUP BY 1
+ORDER BY 1
+;
+-- 9.  If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
+
+SELECT
+	a.customer_id
+    ,SUM(
+      	(CASE WHEN b.product_name = 'sushi' THEN 2 ELSE 1 END)*b.price) AS points
+FROM dannys_diner.sales a
+JOIN dannys_diner.menu b
+ON a.product_id = b.product_id
+GROUP BY 1
+ORDER BY 1;
+
+-- 10. In the first week after a customer joins the program (including their join date) they earn 2x points on all items, not just sushi - how many points do customer A and B have at the end of January?
+
+SELECT
+	a.customer_id
+    ,SUM(
+      	(CASE WHEN a.order_date BETWEEN c.join_date AND c.join_date + 7 THEN 2
+         	WHEN b.product_name = 'sushi' THEN 2 ELSE 1 END
+        )*b.price) AS points
+FROM dannys_diner.sales a
+JOIN dannys_diner.menu b
+ON a.product_id = b.product_id
+JOIN dannyS_diner.members c
+ON a.customer_id = c.customer_id
+WHERE DATE_PART('month',a.order_date) = 1
+GROUP BY 1
+ORDER BY 1;
+
+-- Join all Tables and add rankings
+
+WITH all_data as (
+  SELECT
+  		a.customer_id
+  		,a.order_date::DATE as order_date
+  		,b.product_name
+  		,b.price
+  		,case 
+  			when c.customer_id is not null 
+  				and a.order_date >= c.join_date 
+  					then 'Y' else 'N' end as member
+  FROM dannys_diner.sales a
+  INNER JOIN dannys_diner.menu b
+  ON a.product_id = b.product_id
+  LEFT JOIN dannys_diner.members c
+  ON a.customer_id = c.customer_id
+  )
+SELECT 
+	a.*
+    ,CASE WHEN a.member = 'N' then null
+    	ELSE DENSE_RANK() OVER 
+        	(PARTITION BY a.customer_id,a.member ORDER BY a.order_date) END as ranking
+FROM all_data a
+ORDER BY 1,2;
